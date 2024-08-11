@@ -35,6 +35,7 @@ under the License.
 		<maven.compiler.target>${target.java.version}</maven.compiler.target>
 		<kda.runtime.version>1.2.0</kda.runtime.version>
 		<randomcutforest.version>4.1.0</randomcutforest.version>
+		<lombok.verion>1.18.34</lombok.verion>
 		<log4j.version>2.23.1</log4j.version>
 	</properties>
 
@@ -75,6 +76,14 @@ under the License.
 			<version>${randomcutforest.version}</version>
 		</dependency>
 
+		<!-- Other dependencies -->
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<version>${lombok.verion}</version>
+			<scope>provided</scope>
+		</dependency>
+
 		<!-- Add logging framework, to produce console output when running in the IDE. -->
 		<!-- These dependencies are excluded from the application JAR by default. -->
 		<dependency>
@@ -94,6 +103,14 @@ under the License.
 			<artifactId>log4j-core</artifactId>
 			<version>${log4j.version}</version>
 			<scope>compile</scope>
+		</dependency>
+
+		<!-- test -->
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-test-utils-junit</artifactId>
+			<version>${flink.version}</version>
+			<scope>test</scope>
 		</dependency>
 	</dependencies>
 

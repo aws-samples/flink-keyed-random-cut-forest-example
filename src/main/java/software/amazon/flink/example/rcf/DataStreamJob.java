@@ -18,27 +18,36 @@
 
 package software.amazon.flink.example.rcf;
 
-import org.apache.commons.lang3.RandomStringUtils;
-import org.apache.commons.lang3.RandomUtils;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.connector.source.util.ratelimit.RateLimiterStrategy;
 import org.apache.flink.connector.datagen.source.DataGeneratorSource;
-import org.apache.flink.connector.datagen.source.GeneratorFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.LocalStreamEnvironment;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import software.amazon.flink.example.rcf.data.InputDataGeneratorFunction;
+import software.amazon.flink.example.rcf.model.InputData;
+import software.amazon.flink.example.rcf.model.OutputData;
 import software.amazon.flink.example.rcf.operator.KeyRandomCutForestOperator;
-import software.amazon.flink.example.rcf.operator.RcfInputMapper;
-import software.amazon.flink.example.rcf.operator.RcfResultMapper;
-
-import java.util.Arrays;
+import software.amazon.flink.example.rcf.operator.RcfModelParams;
+import software.amazon.flink.example.rcf.operator.RcfModelsConfig;
 
 public class DataStreamJob {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(DataStreamJob.class);
+
+    private static final int DEFAULT_SHINGLE_SIZE = 1;
+    private static final int DEFAULT_SAMPLE_SIZE = 256;
+    private static final int DEFAULT_NUMBER_OF_TREES = 50;
+    private static final int DEFAULT_OUTPUT_AFTER = 512;
+
+
+    private static final float ANOMALY_THRESHOLD = 0.8f;
+
 
     private static boolean isLocal(StreamExecutionEnvironment env) {
         return env instanceof LocalStreamEnvironment;
     }
+
 
     public static void main(String[] args) throws Exception {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -55,32 +64,39 @@ public class DataStreamJob {
             env.getCheckpointConfig().setMaxConcurrentCheckpoints(1);
         }
 
-        GeneratorFunction<Long, InputRecord> ramdomInputRecordGeneratorFunction = index -> {
-            String key = RandomStringUtils.randomAlphabetic(1).toUpperCase();
-            float[] values = {RandomUtils.nextFloat(0f, 1.0f), RandomUtils.nextFloat(0f, 1.0f), RandomUtils.nextFloat(0f, 1.0f)};
-            return new InputRecord(key, values);
-        };
-
-        DataGeneratorSource<InputRecord> source = new DataGeneratorSource<>(
-                ramdomInputRecordGeneratorFunction,
+        // Initialize the data generator source
+        DataGeneratorSource<InputData> source = new DataGeneratorSource<>(
+                new InputDataGeneratorFunction(),
                 Long.MAX_VALUE,
-                RateLimiterStrategy.perSecond(10),
-                TypeInformation.of(InputRecord.class));
-        DataStream<InputRecord> inputStream = env.fromSource(source, WatermarkStrategy.noWatermarks(), "Data generator").uid("data-gen");
+                RateLimiterStrategy.perSecond(100),
+                TypeInformation.of(InputData.class));
+        DataStream<InputData> inputStream = env.fromSource(source, WatermarkStrategy.noWatermarks(), "Data generator").uid("data-gen");
 
-        RcfInputMapper<InputRecord> inputMapper = inputRecord -> Arrays.copyOf(inputRecord.getValues(), inputRecord.getValues().length);
+        // RCF model parameters. We only define the default that will be used for every key
+        // TODO fetch parameters for each key from application configuration
+        RcfModelsConfig modelsConfig = new RcfModelsConfig(
+                RcfModelParams.builder()
+                        .dimensions(InputDataGeneratorFunction.DIMENSIONS)
+                        .shingleSize(DEFAULT_SHINGLE_SIZE)
+                        .sampleSize(DEFAULT_SAMPLE_SIZE)
+                        .numberOfTrees(DEFAULT_NUMBER_OF_TREES)
+                        .outputAfter(DEFAULT_OUTPUT_AFTER)
+                        .build());
 
-        RcfResultMapper<InputRecord, String> resultMapper = (inputRecord, score) -> String.format("%s: %f", inputRecord.key, score);
-
-        KeyRandomCutForestOperator<InputRecord, String> rcfOperator = new KeyRandomCutForestOperator<>(
-                inputMapper,
-                resultMapper,
+        // Initialize the RCF operator
+        KeyRandomCutForestOperator<InputData, OutputData> rcfOperator = new KeyRandomCutForestOperator<>(
+                new InputDataMapper(),
+                new ResultMapper(),
+                modelsConfig,
                 modelStateSaveIntervalMillis,
                 modelStateSaveTimerJitterMillis);
 
         inputStream
-                .keyBy(InputRecord::getKey)
-                .process(rcfOperator).returns(String.class).uid("rcf")
+                .keyBy(InputData::getKey)
+                // RCF operator
+                .process(rcfOperator).returns(OutputData.class).uid("rcf")
+                // Pass-through map counting records and anomalies
+                .map(new NoOpMapMetricEmittingFunction(ANOMALY_THRESHOLD, "RCF")).uid("counter")
                 .print();
 
 
