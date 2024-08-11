@@ -10,8 +10,8 @@ import org.apache.flink.metrics.Counter;
  * This class demonstrates how to implement a no-op map function
  * to maintain custom counters about scored records.
  */
-public class NoOpMapMetricEmittingFunction extends RichMapFunction<OutputData, OutputData> {
-    private static final Logger LOG = org.slf4j.LoggerFactory.getLogger(NoOpMapMetricEmittingFunction.class);
+public class NoOpMapOutputMonitorFunction extends RichMapFunction<OutputData, OutputData> {
+    private static final Logger LOG = org.slf4j.LoggerFactory.getLogger(NoOpMapOutputMonitorFunction.class);
 
 
     // Counters
@@ -23,7 +23,7 @@ public class NoOpMapMetricEmittingFunction extends RichMapFunction<OutputData, O
     private final float anomalyThreshold;
     private final String metricGroupName;
 
-    public NoOpMapMetricEmittingFunction(float anomalyThreshold, String metricGroupName) {
+    public NoOpMapOutputMonitorFunction(float anomalyThreshold, String metricGroupName) {
         this.anomalyThreshold = anomalyThreshold;
         this.metricGroupName = metricGroupName;
     }
@@ -31,16 +31,16 @@ public class NoOpMapMetricEmittingFunction extends RichMapFunction<OutputData, O
     @Override
     public void open(OpenContext openContext) throws Exception {
         processedRecordCount =  getRuntimeContext().getMetricGroup()
-                .addGroup("kinesisanalyics") // This group makes Managed Flink to export the metric to CloudWatch Metrics
                 .addGroup(metricGroupName)
+                .addGroup("kinesisanalyics") // This group makes Managed Flink to export the metric to CloudWatch Metrics
                 .counter("processedRecordCount");
         scoredRecordCount =  getRuntimeContext().getMetricGroup()
-                .addGroup("kinesisanalyics")
                 .addGroup(metricGroupName)
+                .addGroup("kinesisanalyics")
                 .counter("scoredRecordCount");
         anomaliesCount =  getRuntimeContext().getMetricGroup()
-                .addGroup("kinesisanalyics")
                 .addGroup(metricGroupName)
+                .addGroup("kinesisanalyics")
                 .counter("anomaliesCount");
     }
 

@@ -17,7 +17,7 @@ public class InputDataGeneratorFunction implements GeneratorFunction<Long, Input
     private static final Logger LOG = org.slf4j.LoggerFactory.getLogger(InputDataGeneratorFunction.class);
 
 
-    public static final String[] KEYS = {"k1", "k2", "k3", "k4", "k5"};
+    public static final String[] KEYS = {"K1", "K2", "K3", "K4", "K5"};
 
     public static final float[] AMPLITUDE = {10f, 5f, 25f};
     public static final double[] PHASE = {0, Math.PI / 2, Math.PI / 4};
@@ -63,6 +63,4 @@ public class InputDataGeneratorFunction implements GeneratorFunction<Long, Input
                 randomKey(),
                 values(sequence));
     }
-
-
 }

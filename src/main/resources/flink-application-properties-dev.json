@@ -1,0 +1,48 @@
+[
+  {
+    "PropertyGroupId": "DataGen",
+    "PropertyMap": {
+      "records.per.second": "100"
+    }
+  },
+  {
+    "PropertyGroupId": "OutputMonitor",
+    "PropertyMap": {
+      "anomaly.threshold": "0.8"
+    }
+  },
+  {
+    "PropertyGroupId": "RcfOperator",
+    "PropertyMap": {
+      "model.state.save.interval.ms": "5000",
+      "model.state.save.jitter.ms": "500"
+    }
+  },
+  {
+    "PropertyGroupId": "OutputStream0",
+    "PropertyMap": {
+      "aws.region": "us-east-1",
+      "stream.name": "RcfOutput"
+    }
+  },
+  {
+    "PropertyGroupId": "ModelParameters:DEFAULT",
+    "PropertyMap": {
+      "dimensions": "3",
+      "shingle.size": "1",
+      "sample.size": "256",
+      "number.of.trees": "50",
+      "output.after": "512"
+    }
+  },
+  {
+    "PropertyGroupId": "ModelParameters:K1",
+    "PropertyMap": {
+      "dimensions": "3",
+      "shingle.size": "1",
+      "sample.size": "1024",
+      "number.of.trees": "50",
+      "output.after": "1024"
+    }
+  }
+]

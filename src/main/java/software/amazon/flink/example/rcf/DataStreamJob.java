@@ -18,43 +18,59 @@
 
 package software.amazon.flink.example.rcf;
 
+import com.amazonaws.services.kinesisanalytics.runtime.KinesisAnalyticsRuntime;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.connector.source.util.ratelimit.RateLimiterStrategy;
 import org.apache.flink.connector.datagen.source.DataGeneratorSource;
-import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.connector.kinesis.sink.KinesisStreamsSink;
+import org.apache.flink.formats.json.JsonSerializationSchema;
 import org.apache.flink.streaming.api.environment.LocalStreamEnvironment;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.util.Preconditions;
 import software.amazon.flink.example.rcf.data.InputDataGeneratorFunction;
 import software.amazon.flink.example.rcf.model.InputData;
 import software.amazon.flink.example.rcf.model.OutputData;
 import software.amazon.flink.example.rcf.operator.KeyRandomCutForestOperator;
+import software.amazon.flink.example.rcf.operator.KeyRandomCutForestOperatorBuilder;
 import software.amazon.flink.example.rcf.operator.RcfModelParams;
 import software.amazon.flink.example.rcf.operator.RcfModelsConfig;
+
+import java.io.IOException;
+import java.util.Map;
+import java.util.Properties;
 
 public class DataStreamJob {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(DataStreamJob.class);
 
-    private static final int DEFAULT_SHINGLE_SIZE = 1;
-    private static final int DEFAULT_SAMPLE_SIZE = 256;
-    private static final int DEFAULT_NUMBER_OF_TREES = 50;
-    private static final int DEFAULT_OUTPUT_AFTER = 512;
-
-
-    private static final float ANOMALY_THRESHOLD = 0.8f;
-
+    // Name of the local JSON resource with the application properties in the same format as they are received from the Amazon Managed Service for Apache Flink runtime
+    private static final String LOCAL_APPLICATION_PROPERTIES_RESOURCE = "flink-application-properties-dev.json";
 
     private static boolean isLocal(StreamExecutionEnvironment env) {
         return env instanceof LocalStreamEnvironment;
     }
 
+    /**
+     * Load application properties from Amazon Managed Service for Apache Flink runtime or from a local resource, when the environment is local
+     */
+    private static Map<String, Properties> loadApplicationProperties(StreamExecutionEnvironment env) throws IOException {
+        if (isLocal(env)) {
+            LOG.info("Loading application properties from '{}'", LOCAL_APPLICATION_PROPERTIES_RESOURCE);
+            return KinesisAnalyticsRuntime.getApplicationProperties(
+                    DataStreamJob.class.getClassLoader()
+                            .getResource(LOCAL_APPLICATION_PROPERTIES_RESOURCE).getPath());
+        } else {
+            LOG.info("Loading application properties from Amazon Managed Service for Apache Flink");
+            return KinesisAnalyticsRuntime.getApplicationProperties();
+        }
+    }
+
 
     public static void main(String[] args) throws Exception {
-        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        // TODO Make configurable
-        long modelStateSaveIntervalMillis = 5000;
-        long modelStateSaveTimerJitterMillis = 500;
+        // Load application parameters (runtime configuration)
+        Map<String, Properties> applicationProperties = loadApplicationProperties(env);
 
         // Local dev specific settings
         if (isLocal(env)) {
@@ -65,43 +81,69 @@ public class DataStreamJob {
         }
 
         // Initialize the data generator source
-        DataGeneratorSource<InputData> source = new DataGeneratorSource<>(
-                new InputDataGeneratorFunction(),
-                Long.MAX_VALUE,
-                RateLimiterStrategy.perSecond(100),
-                TypeInformation.of(InputData.class));
-        DataStream<InputData> inputStream = env.fromSource(source, WatermarkStrategy.noWatermarks(), "Data generator").uid("data-gen");
-
-        // RCF model parameters. We only define the default that will be used for every key
-        // TODO fetch parameters for each key from application configuration
-        RcfModelsConfig modelsConfig = new RcfModelsConfig(
-                RcfModelParams.builder()
-                        .dimensions(InputDataGeneratorFunction.DIMENSIONS)
-                        .shingleSize(DEFAULT_SHINGLE_SIZE)
-                        .sampleSize(DEFAULT_SAMPLE_SIZE)
-                        .numberOfTrees(DEFAULT_NUMBER_OF_TREES)
-                        .outputAfter(DEFAULT_OUTPUT_AFTER)
-                        .build());
+        DataGeneratorSource<InputData> source = buildSource(applicationProperties.get("DataGen"));
 
         // Initialize the RCF operator
-        KeyRandomCutForestOperator<InputData, OutputData> rcfOperator = new KeyRandomCutForestOperator<>(
-                new InputDataMapper(),
-                new ResultMapper(),
-                modelsConfig,
-                modelStateSaveIntervalMillis,
-                modelStateSaveTimerJitterMillis);
+        KeyRandomCutForestOperator<InputData, OutputData> rcfOperator = buildRcfOperator(applicationProperties);
 
-        inputStream
+        // Initialize no-op record-emitting output monitor
+        NoOpMapOutputMonitorFunction outputMonitorFunction = buildOutputMonitorFunction(applicationProperties.get("OutputMonitor"));
+
+        // Initialize Kinesis Streams sink
+        KinesisStreamsSink<OutputData> kinesisSink = buildKinesisSink(applicationProperties.get("OutputStream0"));
+
+        // Defines the flow
+        env.fromSource(source, WatermarkStrategy.noWatermarks(), "Data generator").uid("data-gen")
                 .keyBy(InputData::getKey)
                 // RCF operator
-                .process(rcfOperator).returns(OutputData.class).uid("rcf")
+                .process(rcfOperator).returns(OutputData.class).uid("rcf").name("RCF")
                 // Pass-through map counting records and anomalies
-                .map(new NoOpMapMetricEmittingFunction(ANOMALY_THRESHOLD, "RCF")).uid("counter")
-                .print();
+                .map(outputMonitorFunction).uid("output-monitor").name("Output monitor")
+//                .print()
+                // Sink results to Kinesis
+                .sinkTo(kinesisSink);
+
 
 
         // Execute program, beginning computation.
         env.execute();
+    }
+
+    private static DataGeneratorSource<InputData> buildSource(Properties sourceProperties) {
+        double recordsPerSecond = ApplicationConfigUtils.parseMandatoryDouble(sourceProperties, "records.per.second");
+        return new DataGeneratorSource<>(
+                new InputDataGeneratorFunction(),
+                Long.MAX_VALUE,
+                RateLimiterStrategy.perSecond(recordsPerSecond),
+                TypeInformation.of(InputData.class));
+    }
+
+    private static KeyRandomCutForestOperator<InputData, OutputData> buildRcfOperator(Map<String, Properties> applicationProperties) {
+        return new KeyRandomCutForestOperatorBuilder<InputData,OutputData>()
+                .parseOperatorProperties(applicationProperties.get("RcfOperator") )
+                .setInputMapper(new InputDataMapper())
+                .setResultMapper(new ResultMapper())
+                .setDefaultModelParameters(applicationProperties, "ModelParameters:")
+                .setAllSpecificModelParametersProperties(applicationProperties, "ModelParameters:")
+                .build();
+    }
+
+    private static NoOpMapOutputMonitorFunction buildOutputMonitorFunction(Properties outputMonitorProperties) {
+        float anomalyThreshold = ApplicationConfigUtils.parseMandatoryFloat(outputMonitorProperties, "anomaly.threshold");
+        return new NoOpMapOutputMonitorFunction(anomalyThreshold, "rcf-out");
+    }
+
+    private static KinesisStreamsSink<OutputData> buildKinesisSink(Properties kinesisSinkProperties) {
+        String outputStreamName = ApplicationConfigUtils.parseMandatoryString(kinesisSinkProperties, "stream.name");
+        LOG.info("Initialize Kinesis sink to stream '{}'", outputStreamName);
+
+        return KinesisStreamsSink.<OutputData>builder()
+                .setStreamName(outputStreamName)
+                // Any other Kinesis sink properties except stream name is passed to the sink builder
+                .setKinesisClientProperties(kinesisSinkProperties)
+                .setSerializationSchema(new JsonSerializationSchema<>())
+                .setPartitionKeyGenerator(OutputData::getKey)
+                .build();
     }
 
 
