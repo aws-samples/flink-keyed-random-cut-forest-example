@@ -29,6 +29,7 @@ public class KeyRandomCutForestOperator<IN, OUT> extends KeyedProcessFunction<St
     private static final RandomCutForestMapper rcfMapper = new RandomCutForestMapper();
 
     // Cached, non-serializable RCF models, by key
+    // FIXME concurrent acces by processElement and trigger
     private transient Map<String, RandomCutForest> rcfModel;
 
     // Flags to mark initialized timers, per key
