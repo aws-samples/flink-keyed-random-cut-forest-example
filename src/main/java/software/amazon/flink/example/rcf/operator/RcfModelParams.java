@@ -12,6 +12,8 @@ import java.util.Properties;
  * Configuration (hyper-parameters) of a single RCF model.
  *
  * TODO add any other parameters required
+ *
+ * TODO add the ability to define a partial configuration to be merged with the default parameters. This way key-specific config can only contains the overrides
  */
 @Getter @AllArgsConstructor @Builder @ToString
 public class RcfModelParams implements Serializable {
@@ -41,7 +43,6 @@ public class RcfModelParams implements Serializable {
                 .outputAfter(getMandatoryInt(modelParamsProperties, PropertiesNames.OUTPUT_AFTER, modelKey))
                 .build();
     }
-
 
 
     private static int getMandatoryInt(Properties prop, String propertyName, String modelKey) {

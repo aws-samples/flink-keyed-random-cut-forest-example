@@ -13,27 +13,35 @@ import org.apache.flink.util.Collector;
 import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 
+import java.io.IOException;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Keyed, stateful RCF operator.
  * <p>
- * FIXME explain how it works
+ * TODO explain how it works
+ *
+ * TODO RandonCutForest mapper can be configured further. See https://github.com/aws/random-cut-forest-by-aws/blob/35f4cf6cfbe9e2ac0a9b35b88034800f36bec181/Java/core/src/main/java/com/amazon/randomcutforest/state/RandomCutForestMapper.java#L57
  */
 public class KeyRandomCutForestOperator<IN, OUT> extends KeyedProcessFunction<String, IN, OUT> {
     private static final Logger LOG = org.slf4j.LoggerFactory.getLogger(KeyRandomCutForestOperator.class);
 
     private static final RandomCutForestMapper rcfMapper = new RandomCutForestMapper();
 
+    static {
+        // The Executor Context is not serialized by default - this is required
+        rcfMapper.setSaveExecutorContextEnabled(true);
+        // Enable compression to reduce state size - this is optional
+        rcfMapper.setCompressionEnabled(true);
+    }
+
     // Cached, non-serializable RCF models, by key
-    // FIXME handle concurrent access to the model, by processElement and the timer
-    private transient Map<String, RandomCutForest> rcfModel;
+    private transient ConcurrentMap<String, RandomCutForest> rcfModel;
 
     // Flags to mark initialized timers, per key
-    private transient ConcurrentHashMap<String, Boolean> modelStateSaveTimerSet;
+    private transient ConcurrentMap<String, Boolean> modelStateSaveTimerSet;
 
 
     // (Keyed) State containing the RCF Model state (serializable) for the key
@@ -81,7 +89,7 @@ public class KeyRandomCutForestOperator<IN, OUT> extends KeyedProcessFunction<St
         super.open(parameters);
 
         // Initialize an empty map of cached RCF models. The actual models will be initialized lazily
-        rcfModel = new HashMap<>();
+        rcfModel = new ConcurrentHashMap<>();
 
         // Initialize an empty map for timers
         modelStateSaveTimerSet = new ConcurrentHashMap<>();
@@ -139,29 +147,33 @@ public class KeyRandomCutForestOperator<IN, OUT> extends KeyedProcessFunction<St
     }
 
     /**
-     * Lazily initialize the RCF Model
-     * Either restore the model from Flink state, or initialize from hyper-params
+     * Get the model, lazily initializing it
      */
-    private RandomCutForest getRcfModel(String modelKey) throws Exception {
+    private RandomCutForest getRcfModel(String modelKey)  {
         // If there is not cached RCF model for this modelKey, initialize it
-        if (!rcfModel.containsKey(modelKey)) {
-            RandomCutForest model;
-            // FIXME verify the model state is correctly restored from snapshot
+        return rcfModel.computeIfAbsent(modelKey, this::restoreOrInitModel);
+    }
+
+
+    /**
+     * Restore the RCF model from state, if a serializable state is available. Otherwise, initialize it from scratch
+     */
+    private RandomCutForest restoreOrInitModel(String modelKey)  {
+        try {
             if (rcfState.value() != null) {
                 // If there is an RCF state in state, restore the model from state
                 LOG.info("Restoring the RCF model for modelKey '{}' from state", modelKey);
                 RandomCutForestState modelState = rcfState.value();
-                model = rcfMapper.toModel(modelState);
+                return rcfMapper.toModel(modelState);
             } else {
                 // Otherwise, initialize the (untrained) model based on configuration
                 RcfModelParams modelParams = modelsConfig.getModelParams(modelKey);
                 LOG.info("Initialising the RCF model for modelKey '{}' from params: {}", modelKey, modelParams);
-                model = initialiseModel(modelParams);
+                return initialiseModel(modelParams);
             }
-            // Put the model into the in-memory cache
-            rcfModel.put(modelKey, model);
+        } catch (IOException ex) {
+            throw new RuntimeException("Failed to restore or initialize RCF model for modelKey: " + modelKey, ex);
         }
-        return rcfModel.get(modelKey);
     }
 
     /**
@@ -183,18 +195,21 @@ public class KeyRandomCutForestOperator<IN, OUT> extends KeyedProcessFunction<St
      * Gets the cached, in-memory RCF Model for the specified modelKey (if any), extract the RCFState, and save it in Flink state.
      */
     private void saveRcfState(String modelKey) throws Exception {
-        if (rcfModel.containsKey(modelKey)) {
-            LOG.trace("Saving state RCF model for modelKey: {} in Flink state", modelKey);
-            RandomCutForest model = rcfModel.get(modelKey);
-            // Extract the model state
-            RandomCutForestState modelState = rcfMapper.toState(model);
 
+        // If the model for this key is initialized, save its serialized form in Flink state
+        RandomCutForest model = rcfModel.getOrDefault(modelKey, null);
+        if (model != null) {
+            LOG.info("Saving state RCF model for modelKey: '{}' in Flink state", modelKey); // FIXME change log level to DEBUG
+            // Extract the model serializable state
+            RandomCutForestState modelState = rcfMapper.toState(model);
             // Store the model state in Flink state
             rcfState.update(modelState);
         } else {
-            // This condition should not happen.
-            // We should never have a timer trying to save the state of a model modelKey when the model has not been initialized
-            throw new IllegalStateException("Trying to save the RCF model state, but no model has been initialized for modelKey: " + modelKey);
+            // If the timer fires while the model is not initialized yet, do nothing. This may happen when restoring
+            // from checkpoint: timers are saved with the checkpoint/savepoint, and all expired timers are triggered
+            // immediately when the state is restored. We are just logging for testing here
+            LOG.info("Save RCF state timer fired but the model is not initialized, modelKey: '{}'" +
+                    " (this can happen when the application is restored from snapshot)", modelKey);
         }
     }
 
@@ -202,7 +217,7 @@ public class KeyRandomCutForestOperator<IN, OUT> extends KeyedProcessFunction<St
      * Set the timer for the modelKey
      */
     private void setNewTimerForKey(String modelKey, TimerService timerService) {
-        // Calculate the new timer, adding a random jitter
+        // Calculate the new timer, adding a random jitter, if configured
         long currentTime = timerService.currentProcessingTime();
         long jitter = (modelStateSaveTimerJitterMillis > 0)
                 ? (long) (RandomUtils.nextDouble(0, 1) * modelStateSaveTimerJitterMillis)
@@ -210,7 +225,7 @@ public class KeyRandomCutForestOperator<IN, OUT> extends KeyedProcessFunction<St
         long nextTimer = currentTime + modelStateSaveIntervalMillis + jitter;
 
         // Set the next timer
-        LOG.trace("Setting model state save timer for modelKey: {}, at {} in {} millis", modelKey, Instant.ofEpochMilli(nextTimer), nextTimer - currentTime);
+        LOG.debug("Setting model state save timer for modelKey: '{}', at {} in {} millis", modelKey, Instant.ofEpochMilli(nextTimer), nextTimer - currentTime);
         timerService.registerProcessingTimeTimer(nextTimer);
 
         // Ensure the flag of the timer is set for this modelKey

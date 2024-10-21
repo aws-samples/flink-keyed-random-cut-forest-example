@@ -8,14 +8,14 @@
   {
     "PropertyGroupId": "OutputMonitor",
     "PropertyMap": {
-      "anomaly.threshold": "0.8"
+      "anomaly.threshold": "1.1"
     }
   },
   {
     "PropertyGroupId": "RcfOperator",
     "PropertyMap": {
-      "model.state.save.interval.ms": "5000",
-      "model.state.save.jitter.ms": "500"
+      "model.state.save.interval.ms": "30000",
+      "model.state.save.jitter.ms": "1000"
     }
   },
   {

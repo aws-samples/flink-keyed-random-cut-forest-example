@@ -116,7 +116,7 @@ public class DataStreamJob {
         if (isLocal(env)) {
             // Checkpointing and parallelism are set by Amazon Managed Service for Apache Flink when running on AWS
             env.enableCheckpointing(30000);
-            env.setParallelism(2);
+            env.setParallelism(1);
             env.getCheckpointConfig().setMaxConcurrentCheckpoints(1);
         }
 
