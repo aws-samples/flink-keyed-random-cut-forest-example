@@ -27,14 +27,12 @@ import org.apache.flink.connector.kinesis.sink.KinesisStreamsSink;
 import org.apache.flink.formats.json.JsonSerializationSchema;
 import org.apache.flink.streaming.api.environment.LocalStreamEnvironment;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.util.Preconditions;
-import software.amazon.flink.example.rcf.data.InputDataGeneratorFunction;
+import software.amazon.flink.example.rcf.datagen.InputDataGeneratorFunction;
 import software.amazon.flink.example.rcf.model.InputData;
 import software.amazon.flink.example.rcf.model.OutputData;
+import software.amazon.flink.example.rcf.monitor.NoOpMapOutputMonitorFunction;
 import software.amazon.flink.example.rcf.operator.KeyRandomCutForestOperator;
 import software.amazon.flink.example.rcf.operator.KeyRandomCutForestOperatorBuilder;
-import software.amazon.flink.example.rcf.operator.RcfModelParams;
-import software.amazon.flink.example.rcf.operator.RcfModelsConfig;
 
 import java.io.IOException;
 import java.util.Map;
@@ -63,6 +61,48 @@ public class DataStreamJob {
             LOG.info("Loading application properties from Amazon Managed Service for Apache Flink");
             return KinesisAnalyticsRuntime.getApplicationProperties();
         }
+    }
+
+
+
+    // Data generator, generating synthetic data
+    private static DataGeneratorSource<InputData> buildSource(Properties sourceProperties) {
+        double recordsPerSecond = ApplicationConfigUtils.parseMandatoryDouble(sourceProperties, "records.per.second");
+        return new DataGeneratorSource<>(
+                new InputDataGeneratorFunction(),
+                Long.MAX_VALUE,
+                RateLimiterStrategy.perSecond(recordsPerSecond),
+                TypeInformation.of(InputData.class));
+    }
+
+    // The actual keyed RCF operator
+    private static KeyRandomCutForestOperator<InputData, OutputData> buildRcfOperator(Map<String, Properties> applicationProperties) {
+        return new KeyRandomCutForestOperatorBuilder<InputData,OutputData>()
+                .parseOperatorProperties(applicationProperties.get("RcfOperator") )
+                .setInputMapper(new InputDataMapper())
+                .setResultMapper(new ResultMapper())
+                .setDefaultModelParameters(applicationProperties, "ModelParameters-")
+                .setAllSpecificModelParametersProperties(applicationProperties, "ModelParameters-")
+                .build();
+    }
+
+    // This pass-through Map operator is used to expose custom metrics
+    private static NoOpMapOutputMonitorFunction buildOutputMonitorFunction(Properties outputMonitorProperties) {
+        float anomalyThreshold = ApplicationConfigUtils.parseMandatoryFloat(outputMonitorProperties, "anomaly.threshold");
+        return new NoOpMapOutputMonitorFunction(anomalyThreshold, "kinesisAnalytics"); // This group makes Managed Flink to export the metric to CloudWatch Metrics
+    }
+
+    private static KinesisStreamsSink<OutputData> buildKinesisSink(Properties kinesisSinkProperties) {
+        String outputStreamName = ApplicationConfigUtils.parseMandatoryString(kinesisSinkProperties, "stream.name");
+        LOG.info("Initialize Kinesis sink to stream '{}'", outputStreamName);
+
+        return KinesisStreamsSink.<OutputData>builder()
+                .setStreamName(outputStreamName)
+                // Any other Kinesis sink properties except stream name is passed to the sink builder
+                .setKinesisClientProperties(kinesisSinkProperties)
+                .setSerializationSchema(new JsonSerializationSchema<>())
+                .setPartitionKeyGenerator(OutputData::getKey)
+                .build();
     }
 
 
@@ -103,48 +143,7 @@ public class DataStreamJob {
                 // Sink results to Kinesis
                 .sinkTo(kinesisSink);
 
-
-
         // Execute program, beginning computation.
-        env.execute();
+        env.execute("Keyed RCF");
     }
-
-    private static DataGeneratorSource<InputData> buildSource(Properties sourceProperties) {
-        double recordsPerSecond = ApplicationConfigUtils.parseMandatoryDouble(sourceProperties, "records.per.second");
-        return new DataGeneratorSource<>(
-                new InputDataGeneratorFunction(),
-                Long.MAX_VALUE,
-                RateLimiterStrategy.perSecond(recordsPerSecond),
-                TypeInformation.of(InputData.class));
-    }
-
-    private static KeyRandomCutForestOperator<InputData, OutputData> buildRcfOperator(Map<String, Properties> applicationProperties) {
-        return new KeyRandomCutForestOperatorBuilder<InputData,OutputData>()
-                .parseOperatorProperties(applicationProperties.get("RcfOperator") )
-                .setInputMapper(new InputDataMapper())
-                .setResultMapper(new ResultMapper())
-                .setDefaultModelParameters(applicationProperties, "ModelParameters:")
-                .setAllSpecificModelParametersProperties(applicationProperties, "ModelParameters:")
-                .build();
-    }
-
-    private static NoOpMapOutputMonitorFunction buildOutputMonitorFunction(Properties outputMonitorProperties) {
-        float anomalyThreshold = ApplicationConfigUtils.parseMandatoryFloat(outputMonitorProperties, "anomaly.threshold");
-        return new NoOpMapOutputMonitorFunction(anomalyThreshold, "rcf-out");
-    }
-
-    private static KinesisStreamsSink<OutputData> buildKinesisSink(Properties kinesisSinkProperties) {
-        String outputStreamName = ApplicationConfigUtils.parseMandatoryString(kinesisSinkProperties, "stream.name");
-        LOG.info("Initialize Kinesis sink to stream '{}'", outputStreamName);
-
-        return KinesisStreamsSink.<OutputData>builder()
-                .setStreamName(outputStreamName)
-                // Any other Kinesis sink properties except stream name is passed to the sink builder
-                .setKinesisClientProperties(kinesisSinkProperties)
-                .setSerializationSchema(new JsonSerializationSchema<>())
-                .setPartitionKeyGenerator(OutputData::getKey)
-                .build();
-    }
-
-
 }

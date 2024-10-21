@@ -29,7 +29,7 @@ public class KeyRandomCutForestOperator<IN, OUT> extends KeyedProcessFunction<St
     private static final RandomCutForestMapper rcfMapper = new RandomCutForestMapper();
 
     // Cached, non-serializable RCF models, by key
-    // FIXME concurrent acces by processElement and trigger
+    // FIXME handle concurrent access to the model, by processElement and the timer
     private transient Map<String, RandomCutForest> rcfModel;
 
     // Flags to mark initialized timers, per key
@@ -146,15 +146,16 @@ public class KeyRandomCutForestOperator<IN, OUT> extends KeyedProcessFunction<St
         // If there is not cached RCF model for this modelKey, initialize it
         if (!rcfModel.containsKey(modelKey)) {
             RandomCutForest model;
+            // FIXME verify the model state is correctly restored from snapshot
             if (rcfState.value() != null) {
                 // If there is an RCF state in state, restore the model from state
-                LOG.info("Restoring the RCF model for modelKey '{}' from state", modelKey); // FIXME reduce to debug
+                LOG.info("Restoring the RCF model for modelKey '{}' from state", modelKey);
                 RandomCutForestState modelState = rcfState.value();
                 model = rcfMapper.toModel(modelState);
             } else {
                 // Otherwise, initialize the (untrained) model based on configuration
                 RcfModelParams modelParams = modelsConfig.getModelParams(modelKey);
-                LOG.info("Initialising the RCF model for modelKey '{}' from params: {}", modelKey, modelParams); // FIXME reduce to debug
+                LOG.info("Initialising the RCF model for modelKey '{}' from params: {}", modelKey, modelParams);
                 model = initialiseModel(modelParams);
             }
             // Put the model into the in-memory cache

@@ -29,7 +29,7 @@ under the License.
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<flink.version>1.19.1</flink.version>
+		<flink.version>1.20.0</flink.version>
 		<target.java.version>11</target.java.version>
 		<maven.compiler.source>${target.java.version}</maven.compiler.source>
 		<maven.compiler.target>${target.java.version}</maven.compiler.target>
@@ -67,6 +67,7 @@ under the License.
 			<groupId>com.amazonaws</groupId>
 			<artifactId>aws-kinesisanalytics-runtime</artifactId>
 			<version>${kda.runtime.version}</version>
+			<scope>provided</scope>
 		</dependency>
 
 
@@ -110,19 +111,16 @@ under the License.
 			<groupId>org.apache.logging.log4j</groupId>
 			<artifactId>log4j-slf4j-impl</artifactId>
 			<version>${log4j.version}</version>
-			<scope>compile</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.logging.log4j</groupId>
 			<artifactId>log4j-api</artifactId>
 			<version>${log4j.version}</version>
-			<scope>compile</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.logging.log4j</groupId>
 			<artifactId>log4j-core</artifactId>
 			<version>${log4j.version}</version>
-			<scope>compile</scope>
 		</dependency>
 
 		<!-- test -->

@@ -1,10 +1,8 @@
-package software.amazon.flink.example.rcf.data;
+package software.amazon.flink.example.rcf.datagen;
 
 import org.junit.Test;
 import org.junit.jupiter.api.Disabled;
 import software.amazon.flink.example.rcf.model.InputData;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 @Disabled
 public class InputDataGeneratorFunctionTest {

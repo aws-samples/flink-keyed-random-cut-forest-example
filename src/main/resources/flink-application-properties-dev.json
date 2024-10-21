@@ -26,7 +26,7 @@
     }
   },
   {
-    "PropertyGroupId": "ModelParameters:DEFAULT",
+    "PropertyGroupId": "ModelParameters-DEFAULT",
     "PropertyMap": {
       "dimensions": "3",
       "shingle.size": "1",
@@ -36,7 +36,7 @@
     }
   },
   {
-    "PropertyGroupId": "ModelParameters:K1",
+    "PropertyGroupId": "ModelParameters-K1",
     "PropertyMap": {
       "dimensions": "3",
       "shingle.size": "1",

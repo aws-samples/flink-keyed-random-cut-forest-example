@@ -1,4 +1,4 @@
-package software.amazon.flink.example.rcf;
+package software.amazon.flink.example.rcf.monitor;
 
 import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.functions.RichMapFunction;
@@ -32,15 +32,12 @@ public class NoOpMapOutputMonitorFunction extends RichMapFunction<OutputData, Ou
     public void open(OpenContext openContext) throws Exception {
         processedRecordCount =  getRuntimeContext().getMetricGroup()
                 .addGroup(metricGroupName)
-                .addGroup("kinesisanalyics") // This group makes Managed Flink to export the metric to CloudWatch Metrics
                 .counter("processedRecordCount");
         scoredRecordCount =  getRuntimeContext().getMetricGroup()
                 .addGroup(metricGroupName)
-                .addGroup("kinesisanalyics")
                 .counter("scoredRecordCount");
         anomaliesCount =  getRuntimeContext().getMetricGroup()
                 .addGroup(metricGroupName)
-                .addGroup("kinesisanalyics")
                 .counter("anomaliesCount");
     }
 

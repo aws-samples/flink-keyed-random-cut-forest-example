@@ -1,4 +1,4 @@
-package software.amazon.flink.example.rcf.data;
+package software.amazon.flink.example.rcf.datagen;
 
 
 import org.apache.commons.lang3.RandomUtils;
@@ -25,7 +25,7 @@ public class InputDataGeneratorFunction implements GeneratorFunction<Long, Input
     public static final int DIMENSIONS = AMPLITUDE.length;
     public static final int PERIOD = 100; // In number of samples
 
-    public static final double ANOMALY_PROB = 0.005;
+    public static final double ANOMALY_PROB = 0.001;
     public static final double ANOMALY_MAGNITUDE = 50f;
 
 
