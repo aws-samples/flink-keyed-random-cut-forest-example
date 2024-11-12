@@ -7,3 +7,12 @@ Based on https://github.com/aws-samples/amazon-kinesis-data-analytics-examples/t
 Blog: https://aws.amazon.com/blogs/big-data/real-time-anomaly-detection-via-random-cut-forest-in-amazon-managed-service-for-apache-flink/
 
 RCF library: https://github.com/aws/random-cut-forest-by-aws
+
+
+## Security
+
+See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+
+## License
+
+This library is licensed under the MIT-0 License. See the LICENSE file.
