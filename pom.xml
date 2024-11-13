@@ -22,7 +22,7 @@ under the License.
 
 	<groupId>software.amazon.flink.example</groupId>
 	<artifactId>keyed-rcf-example</artifactId>
-	<version>1.0-SNAPSHOT</version>
+	<version>1.0</version>
 	<packaging>jar</packaging>
 
 	<name>Keyed RCF example</name>
@@ -34,7 +34,7 @@ under the License.
 		<maven.compiler.source>${target.java.version}</maven.compiler.source>
 		<maven.compiler.target>${target.java.version}</maven.compiler.target>
 		<kda.runtime.version>1.2.0</kda.runtime.version>
-		<aws.connector.version>4.3.0-1.19</aws.connector.version>
+		<aws.connector.version>5.0.0-1.20</aws.connector.version>
 		<randomcutforest.version>4.1.0</randomcutforest.version>
 		<lombok.verion>1.18.34</lombok.verion>
 		<log4j.version>2.23.1</log4j.version>
@@ -133,6 +133,7 @@ under the License.
 	</dependencies>
 
 	<build>
+		<finalName>${project.artifactId}_${flink.version}-${project.version}</finalName>
 		<plugins>
 
 			<!-- Java Compiler -->
