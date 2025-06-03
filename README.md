@@ -2,8 +2,10 @@
 
 **This code example is for demonstration purposes only. The code should not be used for production workloads.**
 
-This example demonstrates how to implement a stateful Random Cut Forest (RCF) anomaly detection algorithm in Flink.
-It uses the [AWS RCF Java implementation](https://github.com/aws/random-cut-forest-by-aws).
+This examples demonstrate an implmenetaion of stateful and multi-tenant anomaly detection based on Random Cut Forest (RCF). 
+Each tenant has a dedicated RCF model. The state of the models is preserved in Flink state and survive job crashes and restarts.
+
+In a multi-tenant system, when tenants have different traffic profiles, you need to use model-per-tenant for reliable results.
 
 * Flink version: 1.20
 * Flink API: DataStream API
@@ -14,12 +16,9 @@ The example is designed to run on [Amazon Managed Service for Apache Flink](http
 but it can be easily adapted to any other Apache Flink distribution.
 The only external dependency is an [Amazon Kinesis Data Stream](https://aws.amazon.com/kinesis/) where scored data are emitted.
 
-
 This example is based on [this other Flink RCF implementation](https://github.com/aws-samples/amazon-kinesis-data-analytics-examples/tree/master/AnomalyDetection/RandomCutForest) (see also [this blog](https://aws.amazon.com/blogs/big-data/real-time-anomaly-detection-via-random-cut-forest-in-amazon-managed-service-for-apache-flink/)) with the relevant difference 
-that input records are "keyed" (partitioned), and it uses a separate RCF model to score the input for each key.
+that input records are "keyed" (partitioned), input features are scored by and are used to train the model dedicated to that key.
 
-This is necessary when you have, for example, incoming events from multiple tenants. Each tenant has different behaviors, so you
-need to use a separate RCF model for each tenant.
 
 This approach has several implications:
 * Incoming events from each tenant (key) are scored independently
